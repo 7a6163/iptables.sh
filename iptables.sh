@@ -264,37 +264,6 @@ iptables -A SYN_FLOOD -p tcp --syn \
 iptables -A SYN_FLOOD -j LOG --log-prefix "syn_flood_attack: "
 iptables -A SYN_FLOOD -j DROP
 
-# SYNパケットは "SYN_FLOOD" チェーンへジャンプ
-iptables -A INPUT -p tcp --syn -j SYN_FLOOD
-
-###########################################################
-# 攻撃対策: HTTP DoS/DDoS Attack
-###########################################################
-iptables -N HTTP_DOS # "HTTP_DOS" という名前でチェーンを作る
-iptables -A HTTP_DOS -p tcp -m multiport --dports $HTTP \
-         -m hashlimit \
-         --hashlimit 1/s \
-         --hashlimit-burst 100 \
-         --hashlimit-htable-expire 300000 \
-         --hashlimit-mode srcip \
-         --hashlimit-name t_HTTP_DOS \
-         -j RETURN
-
-# 解説
-# -m hashlimit                       ホストごとに制限するため limit ではなく hashlimit を利用する
-# --hashlimit 1/s                    秒間1接続を上限とする
-# --hashlimit-burst 100              上記の上限を100回連続で超えると制限がかかる
-# --hashlimit-htable-expire 300000   管理テーブル中のレコードの有効期間（単位：ms
-# --hashlimit-mode srcip             送信元アドレスでリクエスト数を管理する
-# --hashlimit-name t_HTTP_DOS        /proc/net/ipt_hashlimit に保存されるハッシュテーブル名
-# -j RETURN                          制限以内であれば、親チェーンに戻る
-
-# 制限を超えた接続を破棄
-iptables -A HTTP_DOS -j LOG --log-prefix "http_dos_attack: "
-iptables -A HTTP_DOS -j DROP
-
-# HTTPへのパケットは "HTTP_DOS" チェーンへジャンプ
-iptables -A INPUT -p tcp -m multiport --dports $HTTP -j HTTP_DOS
 
 ###########################################################
 # 攻撃対策: IDENT port probe
