@@ -8,25 +8,60 @@
 ###########################################################
 
 ###########################################################
-# チートシート
-#
-# -A, --append       对某一个链追加一个新的规则
-# -D, --delete       删除一个规则
-# -P, --policy       指定チェインのポリシーを指定したターゲットに設定
-# -N, --new-chain    用户自定义一个新的链
-# -X, --delete-chain 删除用户定义的一个链
-# -F                 初始化iptables链
-#
-# -p, --protocol      协议         プロトコル(tcp、udp、icmp、all)を指定
-# -s, --source        IP地址[ / mask ]  送信元のアドレス。IPアドレスorホスト名を記述
-# -d, --destination   IP地址[ / mask ]  送信先のアドレス。IPアドレスorホスト名を記述
-# -i, --in-interface  输入的网卡           パケットが入ってくるインターフェイスを指定
-# -o, --out-interface 输出的网卡           パケットが出ていくインターフェイスを指定
-# -j, --jump          ターゲット         条件に合ったときのアクションを指定
-# -t, --table         テーブル           テーブルを指定
-# -m state --state    状态              パケットの状態を条件として指定
-#                                       可以指定的state，NEW，ESTABLISHED，RELATED，INVALID
-# !                   条件（～以外的）反转
+# Commands:
+# Either long or short options are allowed.
+#   --append  -A chain		Append to chain
+#   --check   -C chain		Check for the existence of a rule
+#   --delete  -D chain		Delete matching rule from chain
+#   --delete  -D chain rulenum
+# 				Delete rule rulenum (1 = first) from chain
+#   --insert  -I chain [rulenum]
+# 				Insert in chain as rulenum (default 1=first)
+#   --replace -R chain rulenum
+# 				Replace rule rulenum (1 = first) in chain
+#   --list    -L [chain [rulenum]]
+# 				List the rules in a chain or all chains
+#   --list-rules -S [chain [rulenum]]
+# 				Print the rules in a chain or all chains
+#   --flush   -F [chain]		Delete all rules in  chain or all chains
+#   --zero    -Z [chain [rulenum]]
+# 				Zero counters in chain or all chains
+#   --new     -N chain		Create a new user-defined chain
+#   --delete-chain
+#             -X [chain]		Delete a user-defined chain
+#   --policy  -P chain target
+# 				Change policy on chain to target
+#   --rename-chain
+#             -E old-chain new-chain
+# 				Change chain name, (moving any references)
+# Options:
+#     --ipv4	-4		Nothing (line is ignored by ip6tables-restore)
+#     --ipv6	-6		Error (line is ignored by iptables-restore)
+# [!] --protocol	-p proto	protocol: by number or name, eg. `tcp'
+# [!] --source	-s address[/mask][...]
+# 				source specification
+# [!] --destination -d address[/mask][...]
+# 				destination specification
+# [!] --in-interface -i input name[+]
+# 				network interface name ([+] for wildcard)
+#  --jump	-j target
+# 				target for rule (may load target extension)
+#   --goto      -g chain
+#                               jump to chain with no return
+#   --match	-m match
+# 				extended match (may load extension)
+#   --numeric	-n		numeric output of addresses and ports
+# [!] --out-interface -o output name[+]
+# 				network interface name ([+] for wildcard)
+#   --table	-t table	table to manipulate (default: `filter')
+#   --verbose	-v		verbose mode
+#   --wait	-w [seconds]	wait for the xtables lock
+#   --line-numbers		print line numbers when listing
+#   --exact	-x		expand numbers (display exact values)
+# [!] --fragment	-f		match second or further fragments only
+#   --modprobe=<command>		try to insert modules using this command
+#   --set-counters PKTS BYTES	set the counter during insert/append
+# [!] --version	-V		print package version.
 ###########################################################
 
 # 路径
@@ -45,7 +80,7 @@ NO_COLOR="\033[0m"
 ###########################################################
 
 # 内部网络范围
-# LOCAL_NET="xxx.xxx.xxx.xxx/xx"
+#LOCAL_NET="192.168.90.0/24"
 
 # 有一定限制性的内部网络(受限的局域网，只能访问特定的某些服务)
 # LIMITED_LOCAL_NET="xxx.xxx.xxx.xxx/xx"
@@ -115,10 +150,8 @@ initialize()
 # 此函数执行最后的处理，包括保存规则，重启iptables服务
 finailize()
 {
-	service iptables save && # 設定の保存
-	service iptables restart && # 保存したもので再起動してみる
-	return 0
-	return 1
+        iptables-save > /etc/iptables.rules
+        iptables-restore <  /etc/iptables.rules
 }
 
 # 测试时使用
@@ -155,7 +188,20 @@ iptables -P FORWARD DROP
 # 允许本地回环访问
 iptables -A INPUT -i lo -j ACCEPT # SELF -> SELF
 
-# ローカルネットワーク
+###########################################################
+# session确立后的封包沟通
+###########################################################
+iptables -A INPUT  -m state --state ESTABLISHED,RELATED -j ACCEPT
+
+
+#################################################################
+# 一下两条规则的目的是让 keepalived 能正常工作，允许vrrp协议的数据包通过
+#################################################################
+
+#iptables -I INPUT -i eth0 -d 224.0.0.0/8 -p vrrp -j ACCEPT
+#iptables -I OUTPUT -o eth0 -d 224.0.0.0/8 -p vrrp -j ACCEPT
+
+
 # 允许放行来自$LOCAL_NET（内网）的数据包 
 if [ "$LOCAL_NET" ]
 then
@@ -184,43 +230,15 @@ then
 	done
 fi
 
-###########################################################
-# session确立后的封包沟通
-###########################################################
-iptables -A INPUT  -p tcp -m state --state ESTABLISHED,RELATED -j ACCEPT
 
-###########################################################
-# 攻撃対策: Stealth Scan
-###########################################################
-iptables -N STEALTH_SCAN # "STEALTH_SCAN" という名前でチェーンを作る
-iptables -A STEALTH_SCAN -j LOG --log-prefix "stealth_scan_attack: "
-iptables -A STEALTH_SCAN -j DROP
+#   简单的攻击防御对策
 
-# ステルススキャンらしきパケットは "STEALTH_SCAN" チェーンへジャンプする
-iptables -A INPUT -p tcp --tcp-flags SYN,ACK SYN,ACK -m state --state NEW -j STEALTH_SCAN
-iptables -A INPUT -p tcp --tcp-flags ALL NONE -j STEALTH_SCAN
-
-iptables -A INPUT -p tcp --tcp-flags SYN,FIN SYN,FIN         -j STEALTH_SCAN
-iptables -A INPUT -p tcp --tcp-flags SYN,RST SYN,RST         -j STEALTH_SCAN
-iptables -A INPUT -p tcp --tcp-flags ALL SYN,RST,ACK,FIN,URG -j STEALTH_SCAN
-
-iptables -A INPUT -p tcp --tcp-flags FIN,RST FIN,RST -j STEALTH_SCAN
-iptables -A INPUT -p tcp --tcp-flags ACK,FIN FIN     -j STEALTH_SCAN
-iptables -A INPUT -p tcp --tcp-flags ACK,PSH PSH     -j STEALTH_SCAN
-iptables -A INPUT -p tcp --tcp-flags ACK,URG URG     -j STEALTH_SCAN
-
-###########################################################
-# 攻撃対策: フラグメントパケットによるポートスキャン,DOS攻撃
-# namap -v -sF などの対策
-###########################################################
-iptables -A INPUT -f -j LOG --log-prefix 'fragment_packet:'
-iptables -A INPUT -f -j DROP
  
 ###########################################################
-# 攻撃対策: Ping of Death
+# 攻击対策: Ping of Death
 ###########################################################
 # 限制一个IP每秒不能发送超过10个ICMP数据包
-iptables -N PING_OF_DEATH # "PING_OF_DEATH" という名前でチェーンを作る
+iptables -N PING_OF_DEATH # "PING_OF_DEATH"
 iptables -A PING_OF_DEATH -p icmp --icmp-type echo-request \
          -m hashlimit \
          --hashlimit 1/s \
@@ -234,43 +252,14 @@ iptables -A PING_OF_DEATH -p icmp --icmp-type echo-request \
 iptables -A PING_OF_DEATH -j LOG --log-prefix "ping_of_death_attack: "
 iptables -A PING_OF_DEATH -j DROP
 
-# ICMP は "PING_OF_DEATH" チェーンへジャンプ
+# 将ICMP ping数据表定向到 PING_OF_DEATH 链
 iptables -A INPUT -p icmp --icmp-type echo-request -j PING_OF_DEATH
 
-###########################################################
-# 攻撃対策: SYN Flood Attack
-# この対策に加えて Syn Cookie を有効にすべし。
-###########################################################
-iptables -N SYN_FLOOD # "SYN_FLOOD" 新建一个链
-iptables -A SYN_FLOOD -p tcp --syn \
-         -m hashlimit \
-         --hashlimit 200/s \
-         --hashlimit-burst 3 \
-         --hashlimit-htable-expire 300000 \
-         --hashlimit-mode srcip \
-         --hashlimit-name t_SYN_FLOOD \
-         -j RETURN
-
-# 解説
-# -m hashlimit                       ホストごとに制限するため limit ではなく hashlimit を利用する
-# --hashlimit 200/s                  一秒钟连接上限200
-# --hashlimit-burst 3                超过上述的上限的连接3次连续限制
-# --hashlimit-htable-expire 300000   管理テーブル中のレコードの有効期間（単位：ms
-# --hashlimit-mode srcip             送信元アドレスでリクエスト数を管理する
-# --hashlimit-name t_SYN_FLOOD       /proc/net/ipt_hashlimit に保存されるハッシュテーブル名
-# -j RETURN                          满足以上限制的将会被返回到父链
-
-# 制限を超えたSYNパケットを破棄
-iptables -A SYN_FLOOD -j LOG --log-prefix "syn_flood_attack: "
-iptables -A SYN_FLOOD -j DROP
 
 
 ###########################################################
 # 攻撃対策: IDENT port probe
-# identを利用し攻撃者が将来の攻撃に備えるため、あるいはユーザーの
-# システムが攻撃しやすいかどうかを確認するために、ポート調査を実行
-# する可能性があります。
-# DROP ではメールサーバ等のレスポンス低下になるため REJECTする
+# 防止 IDENT信息泄露
 ###########################################################
 iptables -A INPUT -p tcp -m multiport --dports $IDENT -j REJECT --reject-with tcp-reset
 
@@ -285,7 +274,7 @@ iptables -A INPUT -d 224.0.0.1       -j LOG --log-prefix "drop_broadcast: "
 iptables -A INPUT -d 224.0.0.1       -j DROP
 
 ###########################################################
-# 全ホスト(ANY)からの入力許可
+# 全局数据包规则定义如下
 ###########################################################
 
 # ICMP: ping に応答する設定
@@ -301,8 +290,8 @@ iptables -A INPUT -p tcp -m multiport --dports $SSH -j ACCEPT # ANY -> SEL
 # iptables -A INPUT -p tcp -m multiport --dports $FTP -j ACCEPT # ANY -> SELF
 
 # DNS
-iptables -A INPUT -p tcp -m multiport --sports $DNS -j ACCEPT # ANY -> SELF
-iptables -A INPUT -p udp -m multiport --sports $DNS -j ACCEPT # ANY -> SELF
+#iptables -A INPUT -p tcp -m multiport --sports $DNS -j ACCEPT # ANY -> SELF
+#iptables -A INPUT -p udp -m multiport --sports $DNS -j ACCEPT # ANY -> SELF
 
 # SMTP
 # iptables -A INPUT -p tcp -m multiport --sports $SMTP -j ACCEPT # ANY -> SELF
@@ -339,26 +328,22 @@ then
 	iptables -A INPUT -p tcp -s $ZABBIX_IP --dport 10050 -j ACCEPT # Zabbix -> SELF
 fi
 
+
 ###########################################################
-# それ以外
-# 上記のルールにも当てはまらなかったものはロギングして破棄
+#  合法的数据包以外的数据
+#  所有被丢弃的数据包将会被记录进日志
 ###########################################################
 iptables -A INPUT  -j LOG --log-prefix "drop: "
 iptables -A INPUT  -j DROP
 
 
-# 開発用
+# 测试用
 if [ "$1" == "-t" ]
 then
 	exit 0;
 fi
 
-###########################################################
-# SSH 締め出し回避策
-# 30秒間スリープしてその後 iptables をリセットする。
-# SSH が締め出されていなければ、 Ctrl-C を押せるはず。
-###########################################################
-trap 'finailize && exit 0' 2 # Ctrl-C をトラップする
+trap 'finailize && exit 0' 2 # Ctrl-C  被按下的时候保存规则
 echo "In 30 seconds iptables will be automatically reset."
 echo "Don't forget to test new SSH connection!"
 echo "If there is no problem then press Ctrl-C to finish."
