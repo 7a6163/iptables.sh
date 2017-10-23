@@ -150,8 +150,18 @@ initialize()
 # 此函数执行最后的处理，包括保存规则，重启iptables服务
 finailize()
 {
-        iptables-save > /etc/iptables.rules
-        iptables-restore <  /etc/iptables.rules
+        if [ -f /etc/redhat-release ]
+        then
+            service iptables save
+            service iptables restart
+        elif [ -f /etc/lsb-release ]
+        then
+            iptables-save > /etc/iptables.rules
+            iptables-restore <  /etc/iptables.rules
+        else
+        then
+            echo -e "${RED}Sorry can't save iptables rules for your os ${NO_COLOR}"
+        fi
 }
 
 # 测试时使用
@@ -175,7 +185,7 @@ fi
 initialize
 
 ###########################################################
-# ポリシーの決定
+# 默认规则设定
 ###########################################################
 iptables -P INPUT   DROP # 所有输入全部DROP。将所有的必要的端口都堵上，这个时候新连接不能到达。
 iptables -P OUTPUT  ACCEPT
@@ -283,7 +293,7 @@ iptables -A INPUT -p icmp -j ACCEPT # ANY -> SELF
 # HTTP, HTTPS
 iptables -A INPUT -p tcp -m multiport --dports $HTTP -j ACCEPT # ANY -> SELF
 
-# SSH: ホストを制限する場合は TRUST_HOSTS に信頼ホストを書き下記をコメントアウトする
+# SSH
 iptables -A INPUT -p tcp -m multiport --dports $SSH -j ACCEPT # ANY -> SEL
 
 # FTP
@@ -303,7 +313,7 @@ iptables -A INPUT -p tcp -m multiport --dports $SSH -j ACCEPT # ANY -> SEL
 # iptables -A INPUT -p tcp -m multiport --sports $IMAP -j ACCEPT # ANY -> SELF
 
 ###########################################################
-# ローカルネットワーク(制限付き)からの入力許可
+# 受限制的内部网络
 ###########################################################
 
 if [ "$LIMITED_LOCAL_NET" ]
@@ -319,12 +329,11 @@ then
 fi
 
 ###########################################################
-# 特定ホストからの入力許可
+# zabbix接入许可
 ###########################################################
 
 if [ "$ZABBIX_IP" ]
 then
-	# Zabbix関連を許可
 	iptables -A INPUT -p tcp -s $ZABBIX_IP --dport 10050 -j ACCEPT # Zabbix -> SELF
 fi
 
