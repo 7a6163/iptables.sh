@@ -169,11 +169,7 @@ if [ "$1" == "-t" ]
 then
 	iptables() { echo "iptables $@"; }
 	finailize() { echo "finailize"; }
-fi
-
-
-
-if [ "$1" == "-c" ]
+elif [ "$1" == "-c" ]
 then
 	initialize
 	exit 0
@@ -268,7 +264,7 @@ iptables -A INPUT -p icmp --icmp-type echo-request -j PING_OF_DEATH
 
 
 ###########################################################
-# 攻撃対策: IDENT port probe
+# 攻击対策: IDENT port probe
 # 防止 IDENT信息泄露
 ###########################################################
 iptables -A INPUT -p tcp -m multiport --dports $IDENT -j REJECT --reject-with tcp-reset
@@ -350,12 +346,14 @@ iptables -A INPUT  -j DROP
 if [ "$1" == "-t" ]
 then
 	exit 0;
+else:
+	then
+	trap 'finailize && exit 0' 2 # Ctrl-C  被按下的时候保存规则
+	echo "In 30 seconds iptables will be automatically reset."
+	echo "Don't forget to test new SSH connection!"
+	echo "If there is no problem then press Ctrl-C to finish."
+	sleep 30
+	echo "rollback..."
+	initialize
 fi
 
-trap 'finailize && exit 0' 2 # Ctrl-C  被按下的时候保存规则
-echo "In 30 seconds iptables will be automatically reset."
-echo "Don't forget to test new SSH connection!"
-echo "If there is no problem then press Ctrl-C to finish."
-sleep 30
-echo "rollback..."
-initialize
